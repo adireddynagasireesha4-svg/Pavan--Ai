@@ -74,7 +74,7 @@ export async function generateChatResponse(
 
     try {
       const response = await executeWithRetry(() => ai.models.generateContent({
-        model: "gemini-3.1-flash-image-preview",
+        model: "gemini-1.5-pro",
         contents: [{ parts }],
         config: {
           imageConfig: {
@@ -125,7 +125,7 @@ export async function generateChatResponse(
   if (isEditRequest && uploadedImage) {
     try {
       const response = await executeWithRetry(() => ai.models.generateContent({
-        model: "gemini-2.5-flash-image",
+        model: "gemini-1.5-pro",
         contents: {
           parts: [
             {
@@ -165,11 +165,11 @@ export async function generateChatResponse(
   }
 
   // Text generation with search grounding
-  let modelName = shortcutMode ? "gemini-3-flash-preview" : "gemini-3.1-pro-preview";
+  let modelName = shortcutMode ? "gemini-1.5-flash" : "gemini-1.5-pro";
   
-  // Use 2.5 for maps grounding
+  // Use 1.5-flash for maps grounding
   if (isLocationRequest) {
-    modelName = "gemini-2.5-flash";
+    modelName = "gemini-1.5-flash";
   }
 
   const getSystemInstruction = () => {
@@ -183,9 +183,10 @@ export async function generateChatResponse(
     - Image Generation AI
     
     TASK:
-    Provide a complete, accurate, and structured answer.
+    Provide a complete, accurate, structured, and strictly secure answer.
     
     REQUIREMENTS:
+    - ALWAYS ensure answers prioritize security, user privacy, and ethical guidelines. Do not generate unsafe, insecure, or harmful data.
     - Use step-by-step explanation
     - Include diagrams (ASCII if needed)
     - Provide formulas where applicable
@@ -275,7 +276,7 @@ export async function generateChatResponse(
         if (!shortcutMode && (JSON.stringify(error).includes("429") || JSON.stringify(error).includes("RESOURCE_EXHAUSTED"))) {
           console.warn("Pro model quota exceeded, falling back to Flash model...");
           return await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
+            model: "gemini-1.5-flash",
             contents,
             config: {
               systemInstruction: getSystemInstruction(),

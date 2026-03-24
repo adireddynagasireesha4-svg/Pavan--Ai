@@ -926,8 +926,11 @@ function ChatApp() {
                   handleSend();
                 }
               }}
-              placeholder="Ask Pavan-Ai anything or use Voice Command..."
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-4 pr-32 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all resize-none text-sm min-h-[60px] max-h-[200px]"
+              placeholder={isListening ? "🎤 Listening to your voice... Speak now!" : "Ask Pavan-Ai anything or use Voice Command..."}
+              className={cn(
+                "w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-4 pr-32 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all resize-none text-sm min-h-[60px] max-h-[200px]",
+                isListening && "ring-2 ring-red-500/50 border-red-500 bg-red-500/5"
+              )}
               rows={1}
             />
             <div className="absolute right-3 bottom-3 flex items-center gap-1">
