@@ -80,7 +80,7 @@ export async function signInAnonymously() {
     const userRef = doc(db, "users", user.uid);
     await setDoc(userRef, {
       uid: user.uid,
-      email: "guest@whatsapp.local",
+      email: "guest@pavan-ai.local",
       displayName: "Guest",
       photoURL: "https://api.dicebear.com/7.x/notionists/svg?seed=Guest",
       role: "user",

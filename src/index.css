@@ -41,37 +41,47 @@
     @apply border-l-4 border-zinc-700 pl-4 italic text-zinc-400;
   }
   
-  .whatsapp-markdown {
-    @apply text-[#111b21] leading-[1.3];
+  .dark-markdown {
+    @apply text-zinc-300 leading-[1.6];
   }
-  .whatsapp-markdown p {
-    @apply mb-1.5 last:mb-0;
+  .dark-markdown p {
+    @apply mb-4 last:mb-0;
   }
-  .whatsapp-markdown h1, .whatsapp-markdown h2, .whatsapp-markdown h3 {
-    @apply font-semibold text-[#111b21] mt-3 mb-1.5 first:mt-0;
+  .dark-markdown h1, .dark-markdown h2, .dark-markdown h3 {
+    @apply font-semibold text-zinc-100 mt-6 mb-3 first:mt-0;
   }
-  .whatsapp-markdown ul, .whatsapp-markdown ol {
-    @apply ml-4 mb-2 space-y-1;
+  .dark-markdown ul, .dark-markdown ol {
+    @apply ml-6 mb-4 space-y-2;
   }
-  .whatsapp-markdown ul {
+  .dark-markdown ul {
     @apply list-disc;
   }
-  .whatsapp-markdown ol {
+  .dark-markdown ol {
     @apply list-decimal;
   }
-  .whatsapp-markdown code {
-    @apply bg-[#f0f2f5] px-1 py-0.5 rounded text-[#d81b60] font-mono text-xs;
+  .dark-markdown code {
+    @apply bg-zinc-800 px-1.5 py-0.5 rounded text-indigo-300 font-mono text-xs;
   }
-  .whatsapp-markdown pre {
-    @apply bg-[#f0f2f5] p-3 rounded-lg border border-[#d1d7db] overflow-x-auto my-2;
+  .dark-markdown pre {
+    @apply bg-zinc-900 p-4 rounded-xl border border-zinc-800 overflow-x-auto my-4;
   }
-  .whatsapp-markdown pre code {
-    @apply bg-transparent p-0 text-[#111b21];
+  .dark-markdown pre code {
+    @apply bg-transparent p-0 text-zinc-300;
   }
-  .whatsapp-markdown a {
-    @apply text-[#027eb5] hover:underline;
+  .dark-markdown a {
+    @apply text-indigo-400 hover:text-indigo-300 underline underline-offset-4;
   }
-  .whatsapp-markdown blockquote {
-    @apply border-l-4 border-[#00a884] pl-3 italic text-[#54656f];
+  .dark-markdown blockquote {
+    @apply border-l-4 border-zinc-700 pl-4 italic text-zinc-400;
+  }
+
+  /* Keypad animations */
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-5px); }
+    40%, 80% { transform: translateX(5px); }
+  }
+  .shake {
+    animation: shake 0.4s ease-in-out;
   }
 }
