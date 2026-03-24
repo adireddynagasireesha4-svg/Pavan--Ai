@@ -2,11 +2,8 @@ import { useState, useRef, useEffect, Component, ErrorInfo, ReactNode } from "re
 import { motion, AnimatePresence } from "motion/react";
 import { Send, Image as ImageIcon, Globe, Cpu, Sparkles, User, Bot, Loader2, Search, Zap, LogOut, LogIn, History, Plus, Trash2, Settings2, X, Upload, Mic, MicOff, Volume2, Stethoscope, GraduationCap, BookOpen, Lightbulb, Brain, Beaker, Code, MapPin, ExternalLink } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { cn, compressImage, cleanFirestoreData } from "./lib/utils";
+import { cn, compressImage } from "./lib/utils";
 import { Message, generateChatResponse, ImageParams, Persona } from "./services/gemini";
-import { auth, db, enterApp, logout, OperationType, handleFirestoreError } from "./firebase";
-import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, deleteDoc, getDocs, setDoc } from "firebase/firestore";
 
 // Error Boundary Component
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean, error: any }> {
@@ -37,11 +34,6 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
           >
             Refresh Page
           </button>
-          {process.env.NODE_ENV === 'development' && (
-            <pre className="mt-8 p-4 bg-zinc-900 rounded-lg text-xs text-left overflow-auto max-w-full">
-              {JSON.stringify(this.state.error, null, 2)}
-            </pre>
-          )}
         </div>
       );
     }
@@ -50,10 +42,25 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
   }
 }
 
+interface AppUser {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string;
+}
+
+interface Session {
+  id: string;
+  userId: string;
+  title: string;
+  createdAt: number;
+  lastMessageAt: number;
+}
+
 function ChatApp() {
-  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [sessions, setSessions] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -75,103 +82,88 @@ function ChatApp() {
   const chatFileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
 
-  // Voice Recognition Setup
+  // Initialize Auth from LocalStorage
   useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.lang = navigator.language || "en-US";
-
-      recognitionRef.current.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setInput(transcript);
-        setIsListening(false);
-      };
-
-      recognitionRef.current.onerror = (event: any) => {
-        console.error("Speech recognition error:", event.error);
-        setIsListening(false);
-      };
-
-      recognitionRef.current.onend = () => {
-        setIsListening(false);
-      };
-    }
-  }, []);
-
-  const toggleListening = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-    } else {
-      recognitionRef.current?.start();
-      setIsListening(true);
-    }
-  };
-
-  const speak = (text: string) => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = navigator.language || "en-US";
-    window.speechSynthesis.speak(utterance);
-  };
-
-  // Auth Listener
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setIsAuthReady(true);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // Sessions Listener
-  useEffect(() => {
-    if (!user) {
-      setSessions([]);
-      setCurrentSessionId(null);
-      return;
-    }
-
-    const sessionsRef = collection(db, "users", user.uid, "sessions");
-    const q = query(sessionsRef, orderBy("createdAt", "desc"));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const sessionData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setSessions(sessionData);
-      if (sessionData.length > 0 && !currentSessionId) {
-        setCurrentSessionId(sessionData[0].id);
+    const savedUser = localStorage.getItem("appUser");
+    if (savedUser) {
+      try {
+        setUser(JSON.parse(savedUser));
+      } catch (e) {
+        console.error("Failed to parse user from local storage");
       }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/sessions`);
-    });
+    }
+    setIsAuthReady(true);
+  }, []);
 
-    return () => unsubscribe();
+  const enterApp = () => {
+    const newUser = {
+      uid: "user-" + Date.now(),
+      email: "anonymous@example.com",
+      displayName: "Anonymous User",
+      photoURL: ""
+    };
+    localStorage.setItem("appUser", JSON.stringify(newUser));
+    setUser(newUser);
+  };
+
+  const logout = () => {
+    localStorage.removeItem("appUser");
+    setUser(null);
+    setSessions([]);
+    setMessages([]);
+    setCurrentSessionId(null);
+  };
+
+  // Load Sessions
+  useEffect(() => {
+    if (!user) return;
+    const savedSessions = localStorage.getItem(`sessions-${user.uid}`);
+    if (savedSessions) {
+      try {
+        const parsed = JSON.parse(savedSessions);
+        setSessions(parsed);
+        if (parsed.length > 0 && !currentSessionId) {
+          setCurrentSessionId(parsed[0].id);
+        }
+      } catch (e) {}
+    }
   }, [user]);
 
-  const filteredSessions = sessions.filter(session => 
-    session.title?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Save Sessions
+  useEffect(() => {
+    if (user && sessions.length > 0) {
+      localStorage.setItem(`sessions-${user.uid}`, JSON.stringify(sessions));
+    }
+  }, [sessions, user]);
 
-  // Messages Listener
+  // Load Messages for Current Session
   useEffect(() => {
     if (!user || !currentSessionId) {
       setMessages([]);
       return;
     }
-
-    const messagesRef = collection(db, "users", user.uid, "sessions", currentSessionId, "messages");
-    const q = query(messagesRef, orderBy("createdAt", "asc"));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const messageData = snapshot.docs.map(doc => doc.data() as Message);
-      setMessages(messageData);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/sessions/${currentSessionId}/messages`);
-    });
-
-    return () => unsubscribe();
+    const savedMessages = localStorage.getItem(`messages-${user.uid}-${currentSessionId}`);
+    if (savedMessages) {
+      try {
+        setMessages(JSON.parse(savedMessages));
+      } catch (e) {
+        setMessages([]);
+      }
+    } else {
+      setMessages([]);
+    }
   }, [user, currentSessionId]);
+
+  // Save Messages for Current Session
+  useEffect(() => {
+    if (user && currentSessionId && messages.length > 0) {
+      localStorage.setItem(`messages-${user.uid}-${currentSessionId}`, JSON.stringify(messages));
+    }
+  }, [messages, user, currentSessionId]);
+
+  const filteredSessions = sessions.filter(session => 
+    session.title?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -180,32 +172,30 @@ function ChatApp() {
     }
   }, [messages, isLoading]);
 
-  const createNewSession = async () => {
+  const createNewSession = () => {
     if (!user) return;
-    try {
-      const sessionsRef = collection(db, "users", user.uid, "sessions");
-      const docRef = await addDoc(sessionsRef, {
-        userId: user.uid,
-        title: "New Chat",
-        createdAt: serverTimestamp(),
-        lastMessageAt: serverTimestamp(),
-      });
-      setCurrentSessionId(docRef.id);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/sessions`);
-    }
+    const newSession: Session = {
+      id: "session-" + Date.now(),
+      userId: user.uid,
+      title: "New Chat",
+      createdAt: Date.now(),
+      lastMessageAt: Date.now(),
+    };
+    setSessions(prev => [newSession, ...prev]);
+    setCurrentSessionId(newSession.id);
   };
 
-  const deleteSession = async (sessionId: string, e: React.MouseEvent) => {
+  const deleteSession = (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!user) return;
-    try {
-      await deleteDoc(doc(db, "users", user.uid, "sessions", sessionId));
-      if (currentSessionId === sessionId) {
-        setCurrentSessionId(sessions.find(s => s.id !== sessionId)?.id || null);
-      }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}/sessions/${sessionId}`);
+    
+    const updatedSessions = sessions.filter(s => s.id !== sessionId);
+    setSessions(updatedSessions);
+    localStorage.setItem(`sessions-${user.uid}`, JSON.stringify(updatedSessions));
+    localStorage.removeItem(`messages-${user.uid}-${sessionId}`);
+    
+    if (currentSessionId === sessionId) {
+      setCurrentSessionId(updatedSessions.length > 0 ? updatedSessions[0].id : null);
     }
   };
 
@@ -233,50 +223,44 @@ function ChatApp() {
     }
   };
 
-  const handleSend = async () => {
-    if ((!input.trim() && !uploadedImage) || isLoading || !user) return;
+  const handleSend = async (overrideInput?: string) => {
+    const textToSend = overrideInput || input;
+    if ((!textToSend.trim() && !uploadedImage) || isLoading || !user) return;
 
     let sessionId = currentSessionId;
     if (!sessionId) {
-      try {
-        const sessionsRef = collection(db, "users", user.uid, "sessions");
-        const docRef = await addDoc(sessionsRef, {
-          userId: user.uid,
-          title: input.slice(0, 30) + (input.length > 30 ? "..." : "") || "Image Analysis",
-          createdAt: serverTimestamp(),
-          lastMessageAt: serverTimestamp(),
-        });
-        sessionId = docRef.id;
-        setCurrentSessionId(sessionId);
-      } catch (error) {
-        handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}/sessions`);
-        return;
-      }
+      const newSession: Session = {
+        id: "session-" + Date.now(),
+        userId: user.uid,
+        title: textToSend.slice(0, 30) + (textToSend.length > 30 ? "..." : "") || "Image Analysis",
+        createdAt: Date.now(),
+        lastMessageAt: Date.now(),
+      };
+      setSessions(prev => [newSession, ...prev]);
+      sessionId = newSession.id;
+      setCurrentSessionId(sessionId);
+    } else {
+      setSessions(prev => prev.map(s => {
+        if (s.id === sessionId && s.title === "New Chat") {
+          return { ...s, title: textToSend.slice(0, 30) + (textToSend.length > 30 ? "..." : "") };
+        }
+        return s;
+      }));
     }
 
     const userMessage: Message = {
       role: "user",
-      content: input,
+      content: textToSend,
       type: uploadedImage ? "image" : "text",
       imageUrl: uploadedImage || undefined,
     };
 
     setMessages(prev => [...prev, userMessage]);
-    const currentInput = input;
-    const currentImage = uploadedImage;
-    setInput("");
+    if (!overrideInput) setInput("");
     setUploadedImage(null);
     setIsLoading(true);
 
-    const messagesRef = collection(db, "users", user.uid, "sessions", sessionId, "messages");
-    
     try {
-      await addDoc(messagesRef, cleanFirestoreData({
-        ...userMessage,
-        createdAt: serverTimestamp(),
-      }));
-      
-      // Get location if possible
       let location: { latitude: number, longitude: number } | undefined = undefined;
       try {
         const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -287,17 +271,13 @@ function ChatApp() {
         console.warn("Location access denied or timed out");
       }
 
-      const response = await generateChatResponse(currentInput, messages, shortcutMode, imageParams, persona, currentImage || undefined, location);
+      const response = await generateChatResponse(textToSend, messages, shortcutMode, imageParams, persona, uploadedImage || undefined, location);
       
-      // Compress AI generated image if exists
       if (response.imageUrl) {
         response.imageUrl = await compressImage(response.imageUrl);
       }
 
-      await addDoc(messagesRef, cleanFirestoreData({
-        ...response,
-        createdAt: serverTimestamp(),
-      }));
+      setMessages(prev => [...prev, response]);
     } catch (error: any) {
       console.error("Error in chat flow:", error);
       const errorStr = JSON.stringify(error);
@@ -312,11 +292,51 @@ function ChatApp() {
       };
 
       setMessages(prev => [...prev, errorMessage]);
-      
-      handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}/sessions/${sessionId}/messages`);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Voice Recognition Setup
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = navigator.language || "en-US";
+
+      recognitionRef.current.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setIsListening(false);
+        // Automatically send the transcribed text
+        handleSend(transcript);
+      };
+
+      recognitionRef.current.onerror = (event: any) => {
+        console.error("Speech recognition error:", event.error);
+        setIsListening(false);
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+      };
+    }
+  }, [currentSessionId, user, messages]); // Dependencies needed for handleSend scope
+
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+    } else {
+      recognitionRef.current?.start();
+      setIsListening(true);
+    }
+  };
+
+  const speak = (text: string) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = navigator.language || "en-US";
+    window.speechSynthesis.speak(utterance);
   };
 
   if (!isAuthReady) {
@@ -433,7 +453,9 @@ function ChatApp() {
 
         <div className="p-4 border-t border-zinc-800 bg-zinc-900/50">
           <div className="flex items-center gap-3 mb-4">
-            <img src={user.photoURL || ""} className="w-8 h-8 rounded-full border border-zinc-700" alt="Profile" />
+            <div className="w-8 h-8 rounded-full border border-zinc-700 bg-indigo-600 flex items-center justify-center overflow-hidden">
+              {user.photoURL ? <img src={user.photoURL} alt="Profile" /> : <User className="w-4 h-4 text-white" />}
+            </div>
             <div className="flex-1 truncate">
               <div className="text-xs font-semibold truncate">{user.displayName}</div>
               <div className="text-[10px] text-zinc-500 truncate">{user.email}</div>
@@ -546,7 +568,6 @@ function ChatApp() {
               </div>
 
               <div className="space-y-6">
-                {/* Reference Image */}
                 <div className="space-y-3">
                   <label className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Reference Image (Same Face)</label>
                   <div 
@@ -584,7 +605,6 @@ function ChatApp() {
                   )}
                 </div>
 
-                {/* Aspect Ratio */}
                 <div className="space-y-3">
                   <label className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Aspect Ratio</label>
                   <div className="grid grid-cols-3 gap-2">
@@ -605,7 +625,6 @@ function ChatApp() {
                   </div>
                 </div>
 
-                {/* Image Size */}
                 <div className="space-y-3">
                   <label className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Resolution</label>
                   <div className="grid grid-cols-2 gap-2">
@@ -626,7 +645,6 @@ function ChatApp() {
                   </div>
                 </div>
 
-                {/* Style */}
                 <div className="space-y-3">
                   <label className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Style</label>
                   <select 
@@ -691,8 +709,7 @@ function ChatApp() {
                   <button
                     key={suggestion}
                     onClick={() => {
-                      setInput(suggestion);
-                      // handleSend will be triggered by the user clicking send
+                      handleSend(suggestion);
                     }}
                     className="p-4 text-left rounded-2xl bg-zinc-900/50 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50 transition-all text-sm text-zinc-300 group"
                   >
@@ -909,7 +926,7 @@ function ChatApp() {
                   handleSend();
                 }
               }}
-              placeholder="Ask Pavan-Ai anything..."
+              placeholder="Ask Pavan-Ai anything or use Voice Command..."
               className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-4 pr-32 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all resize-none text-sm min-h-[60px] max-h-[200px]"
               rows={1}
             />
@@ -932,9 +949,9 @@ function ChatApp() {
                 onClick={toggleListening}
                 className={cn(
                   "p-2 transition-all",
-                  isListening ? "text-red-500 animate-pulse" : "text-zinc-500 hover:text-indigo-400"
+                  isListening ? "text-red-500 animate-pulse bg-red-500/10 rounded-full" : "text-zinc-500 hover:text-indigo-400"
                 )}
-                title="Voice Command"
+                title={isListening ? "Listening... (Click to Stop)" : "Start Voice Command"}
               >
                 {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
               </button>
@@ -946,7 +963,7 @@ function ChatApp() {
                 <ImageIcon className="w-5 h-5" />
               </button>
               <button
-                onClick={handleSend}
+                onClick={() => handleSend()}
                 disabled={!input.trim() || isLoading}
                 className="p-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded-xl transition-all shadow-lg shadow-indigo-500/20"
               >
