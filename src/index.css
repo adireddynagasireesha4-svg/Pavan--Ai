@@ -40,4 +40,38 @@
   .prose blockquote {
     @apply border-l-4 border-zinc-700 pl-4 italic text-zinc-400;
   }
+  
+  .whatsapp-markdown {
+    @apply text-[#111b21] leading-[1.3];
+  }
+  .whatsapp-markdown p {
+    @apply mb-1.5 last:mb-0;
+  }
+  .whatsapp-markdown h1, .whatsapp-markdown h2, .whatsapp-markdown h3 {
+    @apply font-semibold text-[#111b21] mt-3 mb-1.5 first:mt-0;
+  }
+  .whatsapp-markdown ul, .whatsapp-markdown ol {
+    @apply ml-4 mb-2 space-y-1;
+  }
+  .whatsapp-markdown ul {
+    @apply list-disc;
+  }
+  .whatsapp-markdown ol {
+    @apply list-decimal;
+  }
+  .whatsapp-markdown code {
+    @apply bg-[#f0f2f5] px-1 py-0.5 rounded text-[#d81b60] font-mono text-xs;
+  }
+  .whatsapp-markdown pre {
+    @apply bg-[#f0f2f5] p-3 rounded-lg border border-[#d1d7db] overflow-x-auto my-2;
+  }
+  .whatsapp-markdown pre code {
+    @apply bg-transparent p-0 text-[#111b21];
+  }
+  .whatsapp-markdown a {
+    @apply text-[#027eb5] hover:underline;
+  }
+  .whatsapp-markdown blockquote {
+    @apply border-l-4 border-[#00a884] pl-3 italic text-[#54656f];
+  }
 }

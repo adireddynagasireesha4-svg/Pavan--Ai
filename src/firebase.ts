@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User, signInAnonymously as firebaseSignInAnonymously } from "firebase/auth";
 import { getFirestore, collection, doc, setDoc, getDoc, addDoc, query, orderBy, onSnapshot, serverTimestamp, Timestamp, getDocFromServer } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
 
@@ -71,25 +71,25 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
-export async function signInWithGoogle() {
+export async function signInAnonymously() {
   try {
-    const result = await signInWithPopup(auth, googleProvider);
+    const result = await firebaseSignInAnonymously(auth);
     const user = result.user;
     
     // Create/update user profile in Firestore
     const userRef = doc(db, "users", user.uid);
     await setDoc(userRef, {
       uid: user.uid,
-      email: user.email,
-      displayName: user.displayName,
-      photoURL: user.photoURL,
+      email: "guest@whatsapp.local",
+      displayName: "Guest",
+      photoURL: "https://api.dicebear.com/7.x/notionists/svg?seed=Guest",
       role: "user",
       createdAt: serverTimestamp(),
     }, { merge: true });
     
     return user;
   } catch (error) {
-    console.error("Error signing in with Google:", error);
+    console.error("Error signing in anonymously:", error);
     throw error;
   }
 }

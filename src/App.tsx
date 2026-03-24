@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect, Component, ErrorInfo, ReactNode } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { Send, Image as ImageIcon, Globe, Cpu, Sparkles, User, Bot, Loader2, Search, Zap, LogOut, LogIn, History, Plus, Trash2, Settings2, X, Upload, Mic, MicOff, Volume2, Stethoscope, GraduationCap, BookOpen, Lightbulb, Brain, Beaker, Code, MapPin, ExternalLink } from "lucide-react";
+import { Send, Image as ImageIcon, Globe, User, Bot, Loader2, Search, Zap, LogOut, Plus, Trash2, Settings2, X, Upload, Mic, MicOff, Volume2, Paperclip, MoreVertical, MessageSquare, Check, CheckCheck } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { cn, compressImage, cleanFirestoreData } from "./lib/utils";
 import { Message, generateChatResponse, ImageParams, Persona } from "./services/gemini";
-import { auth, db, signInWithGoogle, logout, OperationType, handleFirestoreError } from "./firebase";
+import { auth, db, signInAnonymously, logout, OperationType, handleFirestoreError } from "./firebase";
 import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, deleteDoc, getDocs, setDoc } from "firebase/firestore";
 
@@ -26,22 +25,17 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex flex-col items-center justify-center h-screen bg-zinc-950 text-zinc-100 p-6 text-center">
+        <div className="flex flex-col items-center justify-center h-screen bg-[#f0f2f5] text-gray-800 p-6 text-center">
           <h1 className="text-2xl font-bold text-red-500 mb-4">Something went wrong</h1>
-          <p className="text-zinc-400 mb-6 max-w-md">
-            An unexpected error occurred. Please try refreshing the page or contact support if the problem persists.
+          <p className="text-gray-600 mb-6 max-w-md">
+            An unexpected error occurred. Please try refreshing the page.
           </p>
           <button 
             onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-indigo-600 rounded-xl hover:bg-indigo-500 transition-colors"
+            className="px-6 py-2 bg-[#00a884] text-white rounded-xl hover:bg-[#008f6f] transition-colors"
           >
             Refresh Page
           </button>
-          {process.env.NODE_ENV === 'development' && (
-            <pre className="mt-8 p-4 bg-zinc-900 rounded-lg text-xs text-left overflow-auto max-w-full">
-              {JSON.stringify(this.state.error, null, 2)}
-            </pre>
-          )}
         </div>
       );
     }
@@ -50,7 +44,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
   }
 }
 
-function ChatApp() {
+function WhatsAppChat() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [sessions, setSessions] = useState<any[]>([]);
@@ -59,68 +53,24 @@ function ChatApp() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [shortcutMode, setShortcutMode] = useState(false);
-  const [persona, setPersona] = useState<Persona>("General");
-  const [isListening, setIsListening] = useState(false);
-  const [showImageSettings, setShowImageSettings] = useState(false);
-  const [imageParams, setImageParams] = useState<ImageParams>({
-    aspectRatio: "1:1",
-    imageSize: "1K",
-    style: "Realistic",
-  });
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const scrollAnchorRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
-  const recognitionRef = useRef<any>(null);
 
-  // Voice Recognition Setup
+  // Auto Login Anonymously
   useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.lang = navigator.language || "en-US";
-
-      recognitionRef.current.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setInput(transcript);
-        setIsListening(false);
-      };
-
-      recognitionRef.current.onerror = (event: any) => {
-        console.error("Speech recognition error:", event.error);
-        setIsListening(false);
-      };
-
-      recognitionRef.current.onend = () => {
-        setIsListening(false);
-      };
-    }
-  }, []);
-
-  const toggleListening = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-    } else {
-      recognitionRef.current?.start();
-      setIsListening(true);
-    }
-  };
-
-  const speak = (text: string) => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = navigator.language || "en-US";
-    window.speechSynthesis.speak(utterance);
-  };
-
-  // Auth Listener
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setIsAuthReady(true);
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        setIsAuthReady(true);
+      } else {
+        try {
+          await signInAnonymously();
+        } catch (error) {
+          console.error("Auto login failed", error);
+          setIsAuthReady(true);
+        }
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -209,18 +159,6 @@ function ChatApp() {
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const compressed = await compressImage(reader.result as string);
-        setImageParams(prev => ({ ...prev, referenceImage: compressed }));
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
   const handleChatImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -276,20 +214,8 @@ function ChatApp() {
         createdAt: serverTimestamp(),
       }));
       
-      // Get location if possible
-      let location: { latitude: number, longitude: number } | undefined = undefined;
-      try {
-        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
-        });
-        location = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-      } catch (e) {
-        console.warn("Location access denied or timed out");
-      }
-
-      const response = await generateChatResponse(currentInput, messages, shortcutMode, imageParams, persona, currentImage || undefined, location);
+      const response = await generateChatResponse(currentInput, messages, false, undefined, "General", currentImage || undefined);
       
-      // Compress AI generated image if exists
       if (response.imageUrl) {
         response.imageUrl = await compressImage(response.imageUrl);
       }
@@ -300,20 +226,12 @@ function ChatApp() {
       }));
     } catch (error: any) {
       console.error("Error in chat flow:", error);
-      const errorStr = JSON.stringify(error);
-      const isQuotaError = errorStr.includes("429") || errorStr.includes("RESOURCE_EXHAUSTED");
-      
       const errorMessage: Message = {
         role: "model",
-        content: isQuotaError 
-          ? "⚠️ **Quota Exceeded**: I've reached my current limit for processing requests. Please wait a moment or try again later. You can also try switching to 'Shortcut Mode' for faster, lighter responses."
-          : "⚠️ **Connection Error**: I'm having trouble connecting to my intelligence network. Please check your connection and try again.",
+        content: "⚠️ **Connection Error**: I'm having trouble connecting to my network. Please try again.",
         type: "text",
       };
-
       setMessages(prev => [...prev, errorMessage]);
-      
-      handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}/sessions/${sessionId}/messages`);
     } finally {
       setIsLoading(false);
     }
@@ -321,643 +239,244 @@ function ChatApp() {
 
   if (!isAuthReady) {
     return (
-      <div className="h-screen bg-zinc-950 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+      <div className="h-screen bg-[#efeae2] flex items-center justify-center">
+        <Loader2 className="w-10 h-10 text-[#00a884] animate-spin" />
       </div>
     );
   }
 
-  if (!user) {
-    return (
-      <div className="h-screen bg-zinc-950 flex flex-col items-center justify-center p-6 text-center">
-        <motion.div 
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="max-w-md w-full space-y-8"
-        >
-          <div className="flex flex-col items-center">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-emerald-500 flex items-center justify-center shadow-2xl shadow-indigo-500/20 mb-6">
-              <Cpu className="w-10 h-10 text-white" />
-            </div>
-            <h1 className="text-4xl font-bold tracking-tight text-white mb-2">Pavan-Ai</h1>
-            <p className="text-zinc-400">Global Satellite Intelligence & Real-time Data</p>
-          </div>
-          
-          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl space-y-6">
-            <h2 className="text-xl font-semibold text-zinc-200">Welcome back</h2>
-            <p className="text-sm text-zinc-500">Sign in to access your secure chat history and 1,000,000+ datasets.</p>
-            <button
-              onClick={signInWithGoogle}
-              className="w-full flex items-center justify-center gap-3 bg-white text-black font-semibold py-3 px-4 rounded-xl hover:bg-zinc-200 transition-all"
-            >
-              <LogIn className="w-5 h-5" />
-              Sign in with Google
-            </button>
-          </div>
-          
-          <p className="text-xs text-zinc-600 uppercase tracking-widest">
-            Secure • Fast • Intelligent
-          </p>
-        </motion.div>
-      </div>
-    );
-  }
+  const formatTime = () => {
+    const now = new Date();
+    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+  };
 
   return (
-    <div className="flex h-screen bg-zinc-950 text-zinc-100 font-sans overflow-hidden">
-      {/* Sidebar */}
-      <aside className="hidden md:flex flex-col w-72 border-r border-zinc-800 bg-zinc-900/30">
-        <div className="p-4 border-b border-zinc-800 space-y-3">
-          <button 
-            onClick={createNewSession}
-            className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 py-2.5 px-4 rounded-xl border border-zinc-700 transition-all text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            New Chat
-          </button>
-          
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-            <input 
-              type="text"
-              placeholder="Search history..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-zinc-950/50 border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all"
-            />
-            {searchQuery && (
-              <button 
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-500 hover:text-zinc-300"
-              >
-                <X className="w-3 h-3" />
+    <div className="flex h-screen bg-[#eae6df] text-[#111b21] font-sans overflow-hidden">
+      <div className="flex w-full max-w-[1600px] mx-auto bg-white shadow-xl h-full">
+        {/* Left Sidebar */}
+        <aside className="w-[30%] min-w-[300px] border-r border-[#d1d7db] flex flex-col bg-white">
+          {/* Sidebar Header */}
+          <div className="bg-[#f0f2f5] h-[60px] px-4 flex items-center justify-between shrink-0">
+            <div className="w-10 h-10 rounded-full bg-gray-300 overflow-hidden">
+              <img src={`https://api.dicebear.com/7.x/notionists/svg?seed=${user?.uid || 'guest'}`} alt="Profile" className="w-full h-full object-cover" />
+            </div>
+            <div className="flex items-center gap-4 text-[#54656f]">
+              <button onClick={createNewSession} title="New Chat" className="hover:bg-gray-200 p-2 rounded-full transition-colors">
+                <MessageSquare className="w-5 h-5" />
               </button>
-            )}
+              <button onClick={logout} title="Logout" className="hover:bg-gray-200 p-2 rounded-full transition-colors">
+                <MoreVertical className="w-5 h-5" />
+              </button>
+            </div>
           </div>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto p-3 space-y-1">
-          <div className="px-3 py-2 text-[10px] font-mono text-zinc-600 uppercase tracking-widest flex items-center justify-between">
-            <span>Recent Chats</span>
-            {searchQuery && <span className="text-indigo-500 lowercase">{filteredSessions.length} found</span>}
+
+          {/* Search Bar */}
+          <div className="bg-white p-2 border-b border-[#f0f2f5]">
+            <div className="bg-[#f0f2f5] rounded-lg flex items-center px-3 py-1.5 h-[35px]">
+              <Search className="w-4 h-4 text-[#54656f] mr-4" />
+              <input 
+                type="text"
+                placeholder="Search or start new chat"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-transparent focus:outline-none text-sm placeholder:text-[#54656f]"
+              />
+            </div>
           </div>
-          {filteredSessions.length > 0 ? (
-            filteredSessions.map((session) => (
-              <button
+
+          {/* Chat List */}
+          <div className="flex-1 overflow-y-auto bg-white">
+            {filteredSessions.map((session) => (
+              <div
                 key={session.id}
                 onClick={() => setCurrentSessionId(session.id)}
                 className={cn(
-                  "w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm transition-all group",
-                  currentSessionId === session.id 
-                    ? "bg-indigo-600/10 border border-indigo-500/30 text-indigo-400" 
-                    : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+                  "flex items-center px-3 py-3 hover:bg-[#f5f6f6] cursor-pointer transition-colors group relative",
+                  currentSessionId === session.id && "bg-[#f0f2f5]"
                 )}
               >
-                <div className="flex items-center gap-3 truncate">
-                  <History className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{session.title}</span>
+                <div className="w-12 h-12 rounded-full bg-[#00a884] flex items-center justify-center shrink-0 mr-3 text-white font-bold">
+                  AI
                 </div>
-                <Trash2 
-                  onClick={(e) => deleteSession(session.id, e)}
-                  className="w-4 h-4 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shrink-0" 
-                />
-              </button>
-            ))
-          ) : (
-            <div className="px-3 py-8 text-center">
-              <Search className="w-8 h-8 text-zinc-800 mx-auto mb-2" />
-              <p className="text-xs text-zinc-600">No chats found matching your search.</p>
-            </div>
-          )}
-        </div>
-
-        <div className="p-4 border-t border-zinc-800 bg-zinc-900/50">
-          <div className="flex items-center gap-3 mb-4">
-            <img src={user.photoURL || ""} className="w-8 h-8 rounded-full border border-zinc-700" alt="Profile" />
-            <div className="flex-1 truncate">
-              <div className="text-xs font-semibold truncate">{user.displayName}</div>
-              <div className="text-[10px] text-zinc-500 truncate">{user.email}</div>
-            </div>
-          </div>
-          <button 
-            onClick={logout}
-            className="w-full flex items-center justify-center gap-2 text-zinc-500 hover:text-red-400 transition-colors text-xs py-2"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            Sign Out
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 relative">
-        {/* Header */}
-        <header className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-md sticky top-0 z-10">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-emerald-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <Cpu className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight">Pavan-Ai</h1>
-              <div className="flex items-center gap-2 text-[10px] text-zinc-500 uppercase tracking-widest font-mono">
-                <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Satellite Network Active
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            {/* Persona Selector */}
-            <div className="hidden lg:flex items-center gap-1 bg-zinc-900/50 border border-zinc-800 rounded-full p-1 mr-2">
-              {[
-                { id: "General", icon: Sparkles, label: "General" },
-                { id: "Doctor", icon: Stethoscope, label: "Doctor" },
-                { id: "Learner", icon: GraduationCap, label: "Learner" },
-                { id: "Study", icon: BookOpen, label: "Study" },
-                { id: "Suggest", icon: Lightbulb, label: "Suggest" },
-                { id: "Logic", icon: Brain, label: "Logic" },
-                { id: "Scientist", icon: Beaker, label: "Scientist" },
-                { id: "Studio", icon: ImageIcon, label: "Studio" },
-                { id: "Coder", icon: Code, label: "Coder" },
-              ].map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setPersona(p.id as Persona)}
-                  className={cn(
-                    "p-2 rounded-full transition-all flex items-center gap-2",
-                    persona === p.id 
-                      ? "bg-indigo-500/20 text-indigo-400 border border-indigo-500/30" 
-                      : "text-zinc-500 hover:text-zinc-300"
-                  )}
-                  title={p.label}
-                >
-                  <p.icon className="w-4 h-4" />
-                  {persona === p.id && <span className="text-[10px] font-medium pr-1">{p.label}</span>}
-                </button>
-              ))}
-            </div>
-
-            <button
-              onClick={() => setShortcutMode(!shortcutMode)}
-              className={cn(
-                "flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all text-xs relative overflow-hidden group",
-                shortcutMode 
-                  ? "bg-amber-500/20 border-amber-500/50 text-amber-400" 
-                  : "bg-zinc-800/50 border-zinc-700 text-zinc-400"
-              )}
-              title="Shortcut Mode: Concise & Ultra-Fast Answers"
-            >
-              <Zap className={cn("w-3.5 h-3.5", shortcutMode && "fill-amber-400 animate-pulse")} />
-              {shortcutMode ? "Ultra-Fast Mode" : "Normal Mode"}
-              {shortcutMode && (
-                <span className="absolute inset-0 bg-amber-400/10 animate-pulse pointer-events-none" />
-              )}
-            </button>
-            <button
-              onClick={() => setShowImageSettings(!showImageSettings)}
-              className={cn(
-                "p-2 rounded-full border transition-all",
-                showImageSettings ? "bg-indigo-500/20 border-indigo-500 text-indigo-400" : "bg-zinc-800/50 border-zinc-700 text-zinc-400"
-              )}
-              title="Image Generation Settings"
-            >
-              <Settings2 className="w-4 h-4" />
-            </button>
-          </div>
-        </header>
-
-        {/* Image Settings Overlay */}
-        <AnimatePresence>
-          {showImageSettings && (
-            <motion.div
-              initial={{ x: 300, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: 300, opacity: 0 }}
-              className="absolute right-0 top-0 bottom-0 w-80 bg-zinc-900 border-l border-zinc-800 z-20 p-6 shadow-2xl overflow-y-auto"
-            >
-              <div className="flex items-center justify-between mb-8">
-                <h3 className="text-lg font-semibold flex items-center gap-2">
-                  <ImageIcon className="w-5 h-5 text-indigo-400" />
-                  Image Settings
-                </h3>
-                <button onClick={() => setShowImageSettings(false)} className="text-zinc-500 hover:text-white">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="space-y-6">
-                {/* Reference Image */}
-                <div className="space-y-3">
-                  <label className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Reference Image (Same Face)</label>
-                  <div 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="aspect-square rounded-2xl border-2 border-dashed border-zinc-800 hover:border-indigo-500/50 transition-all cursor-pointer flex flex-col items-center justify-center gap-2 bg-zinc-950/50 overflow-hidden relative group"
-                  >
-                    {imageParams.referenceImage ? (
-                      <>
-                        <img src={imageParams.referenceImage} className="w-full h-full object-cover" alt="Reference" />
-                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                          <Upload className="w-6 h-6 text-white" />
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="w-6 h-6 text-zinc-700" />
-                        <span className="text-[10px] text-zinc-600">Click to upload face</span>
-                      </>
-                    )}
+                <div className="flex-1 border-b border-[#f0f2f5] pb-3 pt-1">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="font-medium text-[#111b21] truncate pr-2">{session.title}</span>
+                    <span className="text-xs text-[#54656f] shrink-0">{formatTime()}</span>
                   </div>
-                  <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    onChange={handleImageUpload} 
-                    accept="image/*" 
-                    className="hidden" 
-                  />
-                  {imageParams.referenceImage && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-[#54656f] truncate w-[80%]">
+                      {session.id === currentSessionId && messages.length > 0 
+                        ? (messages[messages.length - 1].content.slice(0, 30) + '...') 
+                        : 'Tap to view chat'}
+                    </span>
                     <button 
-                      onClick={() => setImageParams(prev => ({ ...prev, referenceImage: undefined }))}
-                      className="text-[10px] text-red-400 hover:underline"
+                      onClick={(e) => deleteSession(session.id, e)}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-[#54656f] hover:text-red-500"
                     >
-                      Remove reference
+                      <Trash2 className="w-4 h-4" />
                     </button>
-                  )}
-                </div>
-
-                {/* Aspect Ratio */}
-                <div className="space-y-3">
-                  <label className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Aspect Ratio</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {["1:1", "3:4", "4:3", "9:16", "16:9", "1:4"].map(ratio => (
-                      <button
-                        key={ratio}
-                        onClick={() => setImageParams(prev => ({ ...prev, aspectRatio: ratio as any }))}
-                        className={cn(
-                          "py-1.5 rounded-lg text-[10px] border transition-all",
-                          imageParams.aspectRatio === ratio 
-                            ? "bg-indigo-600 border-indigo-500 text-white" 
-                            : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-600"
-                        )}
-                      >
-                        {ratio}
-                      </button>
-                    ))}
                   </div>
                 </div>
-
-                {/* Image Size */}
-                <div className="space-y-3">
-                  <label className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Resolution</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {["512px", "1K", "2K", "4K"].map(size => (
-                      <button
-                        key={size}
-                        onClick={() => setImageParams(prev => ({ ...prev, imageSize: size as any }))}
-                        className={cn(
-                          "py-1.5 rounded-lg text-[10px] border transition-all",
-                          imageParams.imageSize === size 
-                            ? "bg-indigo-600 border-indigo-500 text-white" 
-                            : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-600"
-                        )}
-                      >
-                        {size}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Style */}
-                <div className="space-y-3">
-                  <label className="text-xs font-mono text-zinc-500 uppercase tracking-widest">Style</label>
-                  <select 
-                    value={imageParams.style}
-                    onChange={(e) => setImageParams(prev => ({ ...prev, style: e.target.value }))}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  >
-                    <option>Realistic</option>
-                    <option>Cinematic</option>
-                    <option>Digital Art</option>
-                    <option>Anime</option>
-                    <option>Oil Painting</option>
-                    <option>3D Render</option>
-                    <option>Sketch</option>
-                  </select>
-                </div>
               </div>
-
-              <div className="mt-8 p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl mb-6">
-                <p className="text-[10px] text-indigo-300 leading-relaxed">
-                  <Zap className="w-3 h-3 inline mr-1" />
-                  Tip: Upload a clear face photo to maintain character consistency across multiple generations.
-                </p>
-              </div>
-
-              <button
-                onClick={() => setShowImageSettings(false)}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2"
-              >
-                Done
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Chat Area */}
-        <main 
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 scroll-smooth"
-        >
-          {messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-center max-w-2xl mx-auto space-y-6">
-              <motion.div 
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ duration: 0.5 }}
-                className="w-20 h-20 rounded-3xl bg-zinc-900 border border-zinc-800 flex items-center justify-center mb-4"
-              >
-                <Sparkles className="w-10 h-10 text-indigo-400" />
-              </motion.div>
-              <h2 className="text-3xl font-bold tracking-tight text-white">How can I help you, {user.displayName?.split(' ')[0]}?</h2>
-              <p className="text-zinc-400 leading-relaxed">
-                I am Pavan-Ai, your global network assistant with access to **1,000,000+ datasets**. I provide fast, easy-to-understand "shortcut" answers and real-time data from across the web.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full mt-8">
-                {[
-                  "Generate an image of a futuristic city",
-                  "What's the latest news in space exploration?",
-                  "Explain quantum physics simply",
-                  "Write a creative story about a robot"
-                ].map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    onClick={() => {
-                      setInput(suggestion);
-                      // handleSend will be triggered by the user clicking send
-                    }}
-                    className="p-4 text-left rounded-2xl bg-zinc-900/50 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50 transition-all text-sm text-zinc-300 group"
-                  >
-                    {suggestion}
-                    <Send className="w-3 h-3 ml-2 inline-block opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <AnimatePresence mode="popLayout">
-            {messages.map((msg, idx) => (
-              <motion.div
-                key={idx}
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                className={cn(
-                  "flex gap-4 max-w-4xl mx-auto",
-                  msg.role === "user" ? "flex-row-reverse" : "flex-row"
-                )}
-              >
-                <div className={cn(
-                  "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-1",
-                  msg.role === "user" ? "bg-indigo-600" : "bg-zinc-800 border border-zinc-700"
-                )}>
-                  {msg.role === "user" ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-                </div>
-                <div className={cn(
-                  "flex flex-col gap-2 max-w-[85%]",
-                  msg.role === "user" ? "items-end" : "items-start"
-                )}>
-                  <div className={cn(
-                    "p-4 rounded-2xl text-sm leading-relaxed",
-                    msg.role === "user" 
-                      ? "bg-indigo-600 text-white rounded-tr-none" 
-                      : "bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-tl-none"
-                  )}>
-                    {msg.type === "image" && msg.imageUrl ? (
-                      <div className="space-y-4">
-                        <img 
-                          src={msg.imageUrl} 
-                          alt="Generated AI" 
-                          className="rounded-xl w-full max-w-md shadow-2xl"
-                          referrerPolicy="no-referrer"
-                        />
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={() => {
-                              setUploadedImage(msg.imageUrl!);
-                              setPersona("Studio");
-                              setInput("Edit this image: ");
-                            }}
-                            className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-[10px] text-zinc-400 hover:text-white transition-all uppercase tracking-widest font-mono"
-                          >
-                            <Settings2 className="w-3 h-3" />
-                            Studio Edit
-                          </button>
-                          <a 
-                            href={msg.imageUrl} 
-                            download="pavan-ai-studio.png"
-                            className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-[10px] text-zinc-400 hover:text-white transition-all uppercase tracking-widest font-mono"
-                          >
-                            <Upload className="w-3 h-3 rotate-180" />
-                            Export
-                          </a>
-                        </div>
-                        <p>{msg.content}</p>
-                      </div>
-                    ) : (
-                      <div className="prose prose-invert prose-sm max-w-none relative group/msg">
-                        <ReactMarkdown>{msg.content}</ReactMarkdown>
-                        
-                        {/* Grounding Metadata */}
-                        {msg.groundingMetadata?.groundingChunks && (
-                          <div className="mt-4 pt-4 border-t border-zinc-800 space-y-3">
-                            <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                              <Globe className="w-3 h-3" />
-                              Intelligence Sources
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              {msg.groundingMetadata.groundingChunks.map((chunk: any, cIdx: number) => {
-                                if (chunk.web) {
-                                  return (
-                                    <a 
-                                      key={cIdx}
-                                      href={chunk.web.uri}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-700/50 rounded-lg text-[10px] text-zinc-400 hover:text-white transition-all"
-                                    >
-                                      <Globe className="w-3 h-3" />
-                                      {chunk.web.title || "Source"}
-                                      <ExternalLink className="w-2 h-2" />
-                                    </a>
-                                  );
-                                }
-                                if (chunk.maps) {
-                                  return (
-                                    <a 
-                                      key={cIdx}
-                                      href={chunk.maps.uri}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 rounded-lg text-[10px] text-indigo-400 hover:text-indigo-300 transition-all"
-                                    >
-                                      <MapPin className="w-3 h-3" />
-                                      {chunk.maps.title || "View on Maps"}
-                                      <ExternalLink className="w-2 h-2" />
-                                    </a>
-                                  );
-                                }
-                                return null;
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {msg.role === "model" && (
-                          <button 
-                            onClick={() => speak(msg.content)}
-                            className="absolute -right-8 top-0 p-1.5 text-zinc-600 hover:text-indigo-400 opacity-0 group-hover/msg:opacity-100 transition-all"
-                            title="Speak Answer"
-                          >
-                            <Volume2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  
-                  {msg.groundingMetadata?.searchEntryPoint && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900/50 border border-zinc-800 text-[10px] text-zinc-500 font-mono uppercase tracking-wider">
-                      <Search className="w-3 h-3 text-emerald-500" />
-                      Verified Intelligence Source
-                    </div>
-                  )}
-                </div>
-              </motion.div>
             ))}
-          </AnimatePresence>
+          </div>
+        </aside>
 
-          {isLoading && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex gap-4 max-w-4xl mx-auto"
-            >
-              <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0">
-                <Bot className="w-4 h-4 text-zinc-500" />
-              </div>
-              <div className="flex items-center gap-3 text-zinc-500 text-sm italic">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Pavan-Ai is processing global datasets...
-              </div>
-            </motion.div>
-          )}
-          <div ref={scrollAnchorRef} className="h-1" />
-        </main>
+        {/* Main Chat Area */}
+        {currentSessionId ? (
+          <main className="flex-1 flex flex-col bg-[#efeae2] relative overflow-hidden">
+            {/* WhatsApp Background Pattern */}
+            <div className="absolute inset-0 opacity-[0.06] pointer-events-none" 
+                 style={{backgroundImage: 'url("https://static.whatsapp.net/rsrc.php/v3/yl/r/rro_yqP4xW9.png")', backgroundRepeat: 'repeat'}}>
+            </div>
 
-        {/* Input Area */}
-        <footer className="p-4 md:p-6 bg-zinc-950 border-t border-zinc-800">
-          <div className="max-w-4xl mx-auto relative">
-            <AnimatePresence>
+            {/* Chat Header */}
+            <header className="bg-[#f0f2f5] h-[60px] px-4 flex items-center justify-between shrink-0 z-10">
+              <div className="flex items-center gap-3 cursor-pointer">
+                <div className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white font-bold">
+                  AI
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-medium text-[#111b21]">WhatsApp AI Agent</span>
+                  <span className="text-xs text-[#54656f]">online</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 text-[#54656f]">
+                <Search className="w-5 h-5 cursor-pointer" />
+                <MoreVertical className="w-5 h-5 cursor-pointer" />
+              </div>
+            </header>
+
+            {/* Messages Area */}
+            <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-2 z-10 relative">
+              <div className="flex justify-center mb-4">
+                <span className="bg-[#ffeecd] text-[#54656f] text-xs px-3 py-1 rounded-lg shadow-sm">
+                  Messages are secured and powered by Gemini 2.5 Flash.
+                </span>
+              </div>
+
+              {messages.map((msg, idx) => {
+                const isUser = msg.role === "user";
+                return (
+                  <div key={idx} className={cn("flex w-full mb-1", isUser ? "justify-end" : "justify-start")}>
+                    <div className={cn(
+                      "max-w-[65%] px-3 py-2 rounded-lg relative text-sm shadow-sm",
+                      isUser ? "bg-[#d9fdd3] rounded-tr-none" : "bg-white rounded-tl-none"
+                    )}>
+                      {msg.type === "image" && msg.imageUrl && (
+                        <div className="mb-2">
+                          <img 
+                            src={msg.imageUrl} 
+                            alt="Attached" 
+                            className="rounded-lg max-w-full h-auto cursor-pointer"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      )}
+                      
+                      <div className="prose prose-sm max-w-none text-[#111b21] break-words whatsapp-markdown">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      </div>
+                      
+                      <div className="flex items-center justify-end gap-1 mt-1 -mr-1">
+                        <span className="text-[10px] text-[#667781] leading-none">{formatTime()}</span>
+                        {isUser && <CheckCheck className="w-[14px] h-[14px] text-[#53bdeb]" />}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {isLoading && (
+                <div className="flex w-full mb-1 justify-start">
+                  <div className="max-w-[65%] px-4 py-3 bg-white rounded-lg rounded-tl-none shadow-sm flex items-center gap-2 text-sm text-[#54656f]">
+                    <div className="flex space-x-1">
+                      <div className="w-2 h-2 bg-[#8696a0] rounded-full animate-bounce" style={{animationDelay: '0ms'}} />
+                      <div className="w-2 h-2 bg-[#8696a0] rounded-full animate-bounce" style={{animationDelay: '150ms'}} />
+                      <div className="w-2 h-2 bg-[#8696a0] rounded-full animate-bounce" style={{animationDelay: '300ms'}} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div ref={scrollAnchorRef} className="h-4" />
+            </div>
+
+            {/* Input Area */}
+            <footer className="bg-[#f0f2f5] px-4 py-3 shrink-0 z-10 relative">
               {uploadedImage && (
-                <motion.div 
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: 20, opacity: 0 }}
-                  className="absolute bottom-full mb-4 left-0 p-2 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl flex items-center gap-3"
-                >
-                  <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-zinc-700">
+                <div className="absolute bottom-full left-0 right-0 bg-[#f0f2f5] p-3 border-b border-[#d1d7db] flex items-center">
+                  <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-[#d1d7db]">
                     <img src={uploadedImage} className="w-full h-full object-cover" alt="Upload Preview" />
                     <button 
                       onClick={() => setUploadedImage(null)}
-                      className="absolute top-1 right-1 p-1 bg-black/50 hover:bg-black/80 rounded-full text-white transition-colors"
+                      className="absolute top-1 right-1 p-0.5 bg-black/50 hover:bg-black/80 rounded-full text-white"
                     >
                       <X className="w-3 h-3" />
                     </button>
                   </div>
-                  <div className="pr-4 flex flex-col gap-1">
-                    <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Image Attached</p>
-                    <div className="flex gap-2">
-                      {[
-                        { label: "Remove BG", prompt: "Remove the background from this image." },
-                        { label: "Inpaint", prompt: "Inpaint this image: fill in the missing or selected areas with realistic content." },
-                        { label: "Outpaint", prompt: "Outpaint this image: extend the boundaries and fill the new space with matching content." },
-                        { label: "Enhance", prompt: "Enhance this image and make it look professional." },
-                        { label: "Artistic", prompt: "Apply an artistic filter to this image." },
-                      ].map((action) => (
-                        <button
-                          key={action.label}
-                          onClick={() => {
-                            setInput(action.prompt);
-                            setPersona("Studio");
-                          }}
-                          className="text-[9px] px-2 py-1 bg-zinc-800 hover:bg-indigo-600/30 border border-zinc-700 hover:border-indigo-500/50 rounded-md text-zinc-400 hover:text-indigo-300 transition-all uppercase tracking-tighter"
-                        >
-                          {action.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </motion.div>
+                </div>
               )}
-            </AnimatePresence>
 
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder="Ask Pavan-Ai anything..."
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-4 pr-32 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all resize-none text-sm min-h-[60px] max-h-[200px]"
-              rows={1}
-            />
-            <div className="absolute right-3 bottom-3 flex items-center gap-1">
-              <input 
-                type="file" 
-                ref={chatFileInputRef} 
-                onChange={handleChatImageUpload} 
-                accept="image/*" 
-                className="hidden" 
-              />
-              <button 
-                onClick={() => chatFileInputRef.current?.click()}
-                className="p-2 text-zinc-500 hover:text-indigo-400 transition-colors"
-                title="Upload Image"
-              >
-                <Upload className="w-5 h-5" />
-              </button>
-              <button 
-                onClick={toggleListening}
-                className={cn(
-                  "p-2 transition-all",
-                  isListening ? "text-red-500 animate-pulse" : "text-zinc-500 hover:text-indigo-400"
+              <div className="flex items-center gap-3 max-w-5xl mx-auto">
+                <input 
+                  type="file" 
+                  ref={chatFileInputRef} 
+                  onChange={handleChatImageUpload} 
+                  accept="image/*" 
+                  className="hidden" 
+                />
+                <button 
+                  onClick={() => chatFileInputRef.current?.click()}
+                  className="p-2 text-[#54656f] hover:text-[#111b21] transition-colors"
+                >
+                  <Paperclip className="w-6 h-6" />
+                </button>
+                
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder="Type a message"
+                  className="flex-1 bg-white border-none rounded-lg px-4 py-2.5 focus:outline-none text-[#111b21] text-sm"
+                />
+                
+                {input.trim() || uploadedImage ? (
+                  <button
+                    onClick={handleSend}
+                    disabled={isLoading}
+                    className="p-2 text-[#54656f] hover:text-[#111b21] transition-colors disabled:opacity-50"
+                  >
+                    <Send className="w-6 h-6" />
+                  </button>
+                ) : (
+                  <button className="p-2 text-[#54656f] hover:text-[#111b21] transition-colors">
+                    <Mic className="w-6 h-6" />
+                  </button>
                 )}
-                title="Voice Command"
-              >
-                {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-              </button>
-              <button 
-                onClick={() => setInput(prev => prev + " Generate an image of ")}
-                className="p-2 text-zinc-500 hover:text-indigo-400 transition-colors"
-                title="Generate Image"
-              >
-                <ImageIcon className="w-5 h-5" />
-              </button>
-              <button
-                onClick={handleSend}
-                disabled={!input.trim() || isLoading}
-                className="p-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded-xl transition-all shadow-lg shadow-indigo-500/20"
-              >
-                <Send className="w-5 h-5" />
-              </button>
+              </div>
+            </footer>
+          </main>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center bg-[#f0f2f5] border-l border-[#d1d7db]">
+            <div className="w-[300px] mb-8">
+              <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/w3/svg">
+                <circle cx="50" cy="50" r="45" fill="#00a884" />
+                <path d="M50 20 L50 45 L70 65" stroke="white" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+              </svg>
             </div>
+            <h1 className="text-3xl font-light text-[#41525d] mb-4">WhatsApp Web UI</h1>
+            <p className="text-[#667781] text-center max-w-[400px]">
+              Send and receive messages without keeping your phone online.<br/>
+              Use WhatsApp AI Agent on up to 4 linked devices and 1 phone at the same time.
+            </p>
           </div>
-          <p className="text-center text-[10px] text-zinc-600 mt-4 uppercase tracking-[0.2em]">
-            Powered by Global Satellite Intelligence & Google AI
-          </p>
-        </footer>
+        )}
       </div>
     </div>
   );
@@ -966,7 +485,7 @@ function ChatApp() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <ChatApp />
+      <WhatsAppChat />
     </ErrorBoundary>
   );
 }

@@ -165,7 +165,7 @@ export async function generateChatResponse(
   }
 
   // Text generation with search grounding
-  let modelName = shortcutMode ? "gemini-3-flash-preview" : "gemini-3.1-pro-preview";
+  let modelName = "gemini-2.5-flash";
   
   // Use 2.5 for maps grounding
   if (isLocationRequest) {
