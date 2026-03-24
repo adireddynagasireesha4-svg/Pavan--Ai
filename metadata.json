@@ -1,0 +1,5 @@
+{
+  "name": "Pavan-Ai",
+  "description": "The Ultimate Universal Intelligence Assistant with real-time web access, image generation, and AI Studio editing capabilities.",
+  "requestFramePermissions": ["microphone", "geolocation"]
+}
