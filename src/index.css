@@ -1,0 +1,87 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  .prose {
+    @apply text-zinc-200 leading-relaxed;
+  }
+  .prose p {
+    @apply mb-4 last:mb-0;
+  }
+  .prose h1, .prose h2, .prose h3 {
+    @apply font-semibold text-white mt-6 mb-3 first:mt-0;
+  }
+  .prose ul, .prose ol {
+    @apply ml-6 mb-4 space-y-2;
+  }
+  .prose ul {
+    @apply list-disc;
+  }
+  .prose ol {
+    @apply list-decimal;
+  }
+  .prose code {
+    @apply bg-zinc-800 px-1.5 py-0.5 rounded text-indigo-300 font-mono text-xs;
+  }
+  .prose pre {
+    @apply bg-zinc-900 p-4 rounded-xl border border-zinc-800 overflow-x-auto my-4;
+  }
+  .prose pre code {
+    @apply bg-transparent p-0 text-zinc-300;
+  }
+  .prose a {
+    @apply text-indigo-400 hover:text-indigo-300 underline underline-offset-4;
+  }
+  .prose blockquote {
+    @apply border-l-4 border-zinc-700 pl-4 italic text-zinc-400;
+  }
+  
+  .dark-markdown {
+    @apply text-zinc-300 leading-[1.6];
+  }
+  .dark-markdown p {
+    @apply mb-4 last:mb-0;
+  }
+  .dark-markdown h1, .dark-markdown h2, .dark-markdown h3 {
+    @apply font-semibold text-zinc-100 mt-6 mb-3 first:mt-0;
+  }
+  .dark-markdown ul, .dark-markdown ol {
+    @apply ml-6 mb-4 space-y-2;
+  }
+  .dark-markdown ul {
+    @apply list-disc;
+  }
+  .dark-markdown ol {
+    @apply list-decimal;
+  }
+  .dark-markdown code {
+    @apply bg-zinc-800 px-1.5 py-0.5 rounded text-indigo-300 font-mono text-xs;
+  }
+  .dark-markdown pre {
+    @apply bg-zinc-900 p-4 rounded-xl border border-zinc-800 overflow-x-auto my-4;
+  }
+  .dark-markdown pre code {
+    @apply bg-transparent p-0 text-zinc-300;
+  }
+  .dark-markdown a {
+    @apply text-indigo-400 hover:text-indigo-300 underline underline-offset-4;
+  }
+  .dark-markdown blockquote {
+    @apply border-l-4 border-zinc-700 pl-4 italic text-zinc-400;
+  }
+
+  /* Keypad animations */
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-5px); }
+    40%, 80% { transform: translateX(5px); }
+  }
+  .shake {
+    animation: shake 0.4s ease-in-out;
+  }
+}
